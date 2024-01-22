@@ -6,62 +6,45 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract HouseRivalryProtocol is Ownable {
     IERC20 public ornamintsToken;
-    uint256 public competitionEndTime;
-    bool public competitionActive;
 
-    struct House {
-        bool isRegistered;
-        uint256 ornamintsDeposited;
+    struct Competition {
+        uint256 entryFee;
+        bool isActive;
+        address[] houseMultisigs;
     }
 
-    mapping(address => House) public houses;
-    address[] public registeredHouses;
-    uint256 public totalOrnamintsInEscrow;
+    Competition[] public competitions;
 
     // Events
-    event HouseRegistered(address house);
-    event OrnamintsDeposited(address house, uint256 amount);
-    event CompetitionEnded(address winningHouse);
+    event CompetitionCreated(uint256 indexed competitionId, uint256 entryFee);
+    event HouseEnteredCompetition(uint256 indexed competitionId, address houseMultisig);
+    event CompetitionResolved(uint256 indexed competitionId, address winningHouse);
 
     // Constructor
     constructor(IERC20 _ornamintsToken) {
         ornamintsToken = _ornamintsToken;
     }
 
-    // House registration
-    function registerHouse() external competitionNotActive {
-        require(!houses[msg.sender].isRegistered, "House already registered");
-        houses[msg.sender] = House(true, 0);
-        registeredHouses.push(msg.sender);
-        emit HouseRegistered(msg.sender);
+    // Create a new competition
+    function createCompetition(uint256 entryFee) external onlyOwner {
+        competitions.push(Competition(entryFee, true, new address[](0)));
+        emit CompetitionCreated(competitions.length - 1, entryFee);
     }
 
-    // Deposit Ornamints into escrow
-    function depositOrnamints(uint256 amount) external {
-        require(houses[msg.sender].isRegistered, "House not registered");
-        ornamintsToken.transferFrom(msg.sender, address(this), amount);
-        houses[msg.sender].ornamintsDeposited += amount;
-        totalOrnamintsInEscrow += amount;
-        emit OrnamintsDeposited(msg.sender, amount);
+    // House enters a competition
+    function enterCompetition(uint256 competitionId) external {
+        require(competitions[competitionId].isActive, "Competition not active");
+        ornamintsToken.transferFrom(msg.sender, address(this), competitions[competitionId].entryFee);
+        competitions[competitionId].houseMultisigs.push(msg.sender);
+        emit HouseEnteredCompetition(competitionId, msg.sender);
     }
 
-    // Start competition
-    function startCompetition(uint256 duration) external onlyOwner {
-        competitionActive = true;
-        competitionEndTime = block.timestamp + duration;
-    }
-
-    // End competition and declare winner
-    function endCompetition(address winningHouse) external onlyOwner {
-        require(block.timestamp >= competitionEndTime, "Competition not ended");
-        competitionActive = false;
-        ornamintsToken.transfer(winningHouse, totalOrnamintsInEscrow);
-        emit CompetitionEnded(winningHouse);
-    }
-
-    // Modifiers
-    modifier competitionNotActive() {
-        require(!competitionActive, "Competition is active");
-        _;
+    // Resolve a competition
+    function resolveCompetition(uint256 competitionId, address winningHouse) external onlyOwner {
+        require(competitions[competitionId].isActive, "Competition not active");
+        competitions[competitionId].isActive = false;
+        uint256 prizePool = competitions[competitionId].entryFee * competitions[competitionId].houseMultisigs.length;
+        ornamintsToken.transfer(winningHouse, prizePool);
+        emit CompetitionResolved(competitionId, winningHouse);
     }
 }

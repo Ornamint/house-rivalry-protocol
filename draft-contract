@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract HouseRivalryProtocol is Ownable {
+    IERC20 public ornamintsToken;
+    uint256 public competitionEndTime;
+    bool public competitionActive;
+
+    struct House {
+        bool isRegistered;
+        uint256 ornamintsDeposited;
+    }
+
+    mapping(address => House) public houses;
+    address[] public registeredHouses;
+    uint256 public totalOrnamintsInEscrow;
+
+    // Events
+    event HouseRegistered(address house);
+    event OrnamintsDeposited(address house, uint256 amount);
+    event CompetitionEnded(address winningHouse);
+
+    // Constructor
+    constructor(IERC20 _ornamintsToken) {
+        ornamintsToken = _ornamintsToken;
+    }
+
+    // House registration
+    function registerHouse() external competitionNotActive {
+        require(!houses[msg.sender].isRegistered, "House already registered");
+        houses[msg.sender] = House(true, 0);
+        registeredHouses.push(msg.sender);
+        emit HouseRegistered(msg.sender);
+    }
+
+    // Deposit Ornamints into escrow
+    function depositOrnamints(uint256 amount) external {
+        require(houses[msg.sender].isRegistered, "House not registered");
+        ornamintsToken.transferFrom(msg.sender, address(this), amount);
+        houses[msg.sender].ornamintsDeposited += amount;
+        totalOrnamintsInEscrow += amount;
+        emit OrnamintsDeposited(msg.sender, amount);
+    }
+
+    // Start competition
+    function startCompetition(uint256 duration) external onlyOwner {
+        competitionActive = true;
+        competitionEndTime = block.timestamp + duration;
+    }
+
+    // End competition and declare winner
+    function endCompetition(address winningHouse) external onlyOwner {
+        require(block.timestamp >= competitionEndTime, "Competition not ended");
+        competitionActive = false;
+        ornamintsToken.transfer(winningHouse, totalOrnamintsInEscrow);
+        emit CompetitionEnded(winningHouse);
+    }
+
+    // Modifiers
+    modifier competitionNotActive() {
+        require(!competitionActive, "Competition is active");
+        _;
+    }
+}
